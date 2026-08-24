@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../db/app_database.dart';
 import '../models/video_card.dart';
 import '../services/ffmpeg_service.dart';
+import '../services/whisper_service.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final VideoCard card;
@@ -18,6 +19,7 @@ class CardDetailScreen extends StatefulWidget {
 
 class _CardDetailScreenState extends State<CardDetailScreen> {
   final _ffmpeg = FfmpegService();
+  final _whisper = WhisperService();
 
   late RangeValues _range;
   bool _busy = false;
@@ -25,6 +27,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   List<File> _frames = [];
   final Set<String> _selectedFramePaths = {};
   File? _gifFile;
+
+  bool _transcribing = false;
+  String? _transcribeError;
+  String? _transcript;
 
   static const _maxSelectedFrames = 6;
 
@@ -38,7 +44,37 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         (_duration < 60 ? _duration : 60);
     _range = RangeValues(start.toDouble(), end.clamp(start, _duration).toDouble());
     _selectedFramePaths.addAll(widget.card.selectedFrames);
+    _transcript = widget.card.transcriptText;
     _loadExistingFrames();
+  }
+
+  Future<void> _transcribeAudio() async {
+    setState(() {
+      _transcribing = true;
+      _transcribeError = null;
+    });
+    try {
+      final mediaDir = await AppDatabase.instance.mediaDirFor(widget.card.id);
+      final audioPath = p.join(mediaDir.path, 'audio.wav');
+
+      await _ffmpeg.extractAudio(
+        videoPath: widget.card.localVideoPath!,
+        outputAudioPath: audioPath,
+      );
+
+      final transcript = await _whisper.transcribe(audioPath);
+
+      widget.card
+        ..localAudioPath = audioPath
+        ..transcriptText = transcript;
+      await AppDatabase.instance.updateCard(widget.card);
+
+      setState(() => _transcript = transcript);
+    } catch (e) {
+      setState(() => _transcribeError = e.toString());
+    } finally {
+      if (mounted) setState(() => _transcribing = false);
+    }
   }
 
   Future<void> _loadExistingFrames() async {
@@ -245,6 +281,39 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     child: const Text('Save selection'),
                   ),
                 ],
+                const Divider(height: 32),
+                Text('Transcript', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _transcribing ? null : _transcribeAudio,
+                  icon: const Icon(Icons.subtitles),
+                  label: Text(_transcript == null
+                      ? 'Transcribe audio'
+                      : 'Re-transcribe audio'),
+                ),
+                if (_transcribing) const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: LinearProgressIndicator(),
+                ),
+                if (_transcribeError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      _transcribeError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                if (_transcript != null)
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.all(12),
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(_transcript!),
+                  ),
               ],
             ),
     );

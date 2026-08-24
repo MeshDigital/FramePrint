@@ -18,11 +18,19 @@ class FfmpegService {
     }
   }
 
-  /// Extracts the audio track as an m4a file for transcription.
+  /// Extracts the audio track as 16kHz mono PCM WAV, the format whisper.cpp
+  /// expects.
   Future<void> extractAudio({
     required String videoPath,
     required String outputAudioPath,
-  }) => _run(['-i', videoPath, '-vn', '-acodec', 'copy', outputAudioPath]);
+  }) => _run([
+        '-i', videoPath,
+        '-vn',
+        '-ar', '16000',
+        '-ac', '1',
+        '-c:a', 'pcm_s16le',
+        outputAudioPath,
+      ]);
 
   /// Cuts [start, end] (in seconds) from [videoPath] into a small looping
   /// preview GIF.

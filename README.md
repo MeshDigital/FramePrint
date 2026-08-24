@@ -23,14 +23,21 @@ See project memory / prior planning notes for the full phased breakdown
 
 ## Status
 
-Phase 1, step 1-2 (URL input → download) is implemented and working:
-- SQLite-backed `VideoCard` catalog ([lib/db/app_database.dart](lib/db/app_database.dart), [lib/models/video_card.dart](lib/models/video_card.dart))
+Phase 1, steps 1-5 (URL input → download → segment selection → GIF/frame
+extraction → transcription) are implemented and working, verified
+end-to-end against a real video:
+- SQLite-backed `VideoCard` catalog, with a `duration_seconds` migration already in place ([lib/db/app_database.dart](lib/db/app_database.dart), [lib/models/video_card.dart](lib/models/video_card.dart))
 - `yt-dlp` wrapper for metadata + download ([lib/services/ytdlp_service.dart](lib/services/ytdlp_service.dart))
-- `ffmpeg` wrapper for audio/GIF/frame extraction, not yet wired into the UI ([lib/services/ffmpeg_service.dart](lib/services/ffmpeg_service.dart))
-- Home screen (card list) + "new card" screen (URL → download with live log) ([lib/screens/](lib/screens/))
+- `ffmpeg` wrapper for audio/GIF/frame extraction (audio as 16kHz mono WAV, ready for whisper.cpp) ([lib/services/ffmpeg_service.dart](lib/services/ffmpeg_service.dart))
+- `whisper-cli` (whisper.cpp) wrapper for local, offline transcription ([lib/services/whisper_service.dart](lib/services/whisper_service.dart))
+- Home screen (card list) + "new card" screen (URL → download with live log) + "card detail" screen (range slider → extract frames → pick up to 6 key frames → optional preview GIF → transcribe audio) ([lib/screens/](lib/screens/))
 
-Not yet built: segment-selection UI, transcript (STT), local LLM
-summarization, QR/PDF card generation.
+Not yet built: local LLM summarization, QR/PDF card generation.
+
+Note: yt-dlp currently warns about a missing JS runtime ("No supported
+JavaScript runtime could be found... YouTube extraction without a JS
+runtime has been deprecated"). Downloads still work today, but
+installing `deno` would silence this and future-proof extraction.
 
 ## Prerequisites (Windows dev machine)
 
@@ -42,6 +49,13 @@ summarization, QR/PDF card generation.
   developers → Developer Mode → On
 - [`ffmpeg`](https://ffmpeg.org/) on PATH
 - [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) on PATH (`pip install yt-dlp`)
+- [`whisper.cpp`](https://github.com/ggml-org/whisper.cpp) CLI build on PATH
+  (`whisper-cli.exe`, e.g. from the `whisper-bin-x64.zip` Windows release
+  asset), plus a ggml model — this repo currently hardcodes
+  `C:\tools\whisper-cpp\models\ggml-base.bin`
+  ([lib/services/whisper_service.dart](lib/services/whisper_service.dart)),
+  downloadable from
+  [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)
 
 ## Running
 
@@ -52,6 +66,5 @@ flutter run -d windows
 
 ## Not yet set up
 
-- Speech-to-text (Whisper or similar)
 - Local 7B LLM runtime (llama.cpp + a GGUF model)
 - Android toolchain (cmdline-tools + licenses) for the Phase 2 port
