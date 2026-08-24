@@ -13,6 +13,7 @@ class VideoCard {
   String? localAudioPath;
   String? gifPath;
   String? framesDir;
+  int? durationSeconds;
 
   int? segmentStartSeconds;
   int? segmentEndSeconds;
@@ -39,6 +40,7 @@ class VideoCard {
     this.localAudioPath,
     this.gifPath,
     this.framesDir,
+    this.durationSeconds,
     this.segmentStartSeconds,
     this.segmentEndSeconds,
     List<String>? selectedFrames,
@@ -65,6 +67,7 @@ class VideoCard {
       'local_audio_path': localAudioPath,
       'gif_path': gifPath,
       'frames_dir': framesDir,
+      'duration_seconds': durationSeconds,
       'segment_start': segmentStartSeconds,
       'segment_end': segmentEndSeconds,
       'selected_frames': jsonEncode(selectedFrames),
@@ -95,6 +98,7 @@ class VideoCard {
       localAudioPath: map['local_audio_path'] as String?,
       gifPath: map['gif_path'] as String?,
       framesDir: map['frames_dir'] as String?,
+      durationSeconds: map['duration_seconds'] as int?,
       segmentStartSeconds: map['segment_start'] as int?,
       segmentEndSeconds: map['segment_end'] as int?,
       selectedFrames: _decodeList(map['selected_frames']),

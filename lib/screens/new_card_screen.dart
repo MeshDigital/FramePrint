@@ -58,6 +58,7 @@ class _NewCardScreenState extends State<NewCardScreen> {
       _appendLog('Fetching video info...');
       final metadata = await _ytDlp.fetchMetadata(url);
       card.summaryTitle = metadata.title;
+      card.durationSeconds = metadata.durationSeconds.round();
       _appendLog('Found: ${metadata.title}');
 
       final mediaDir = await AppDatabase.instance.mediaDirFor(card.id);

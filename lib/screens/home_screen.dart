@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../db/app_database.dart';
 import '../models/video_card.dart';
+import 'card_detail_screen.dart';
 import 'new_card_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -31,6 +32,15 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const NewCardScreen()),
     );
     if (created == true) {
+      _reload();
+    }
+  }
+
+  Future<void> _openCard(VideoCard card) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => CardDetailScreen(card: card)),
+    );
+    if (changed == true) {
       _reload();
     }
   }
@@ -65,6 +75,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: _statusIcon(card.status),
                 title: Text(card.summaryTitle ?? card.youtubeUrl),
                 subtitle: Text(card.status.name),
+                onTap: card.localVideoPath == null
+                    ? null
+                    : () => _openCard(card),
               );
             },
           );

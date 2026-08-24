@@ -34,7 +34,14 @@ class AppDatabase {
     return factory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute(
+              'ALTER TABLE video_card ADD COLUMN duration_seconds INTEGER',
+            );
+          }
+        },
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE video_card (
@@ -45,6 +52,7 @@ class AppDatabase {
               local_audio_path TEXT,
               gif_path TEXT,
               frames_dir TEXT,
+              duration_seconds INTEGER,
               segment_start INTEGER,
               segment_end INTEGER,
               selected_frames TEXT,
