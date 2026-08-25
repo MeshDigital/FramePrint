@@ -23,16 +23,22 @@ See project memory / prior planning notes for the full phased breakdown
 
 ## Status
 
-Phase 1, steps 1-5 (URL input → download → segment selection → GIF/frame
-extraction → transcription) are implemented and working, verified
-end-to-end against a real video:
+Phase 1, steps 1-6 (URL input → download → segment selection → GIF/frame
+extraction → transcription → local LLM summarization) are implemented
+and working, verified end-to-end against real videos:
 - SQLite-backed `VideoCard` catalog, with a `duration_seconds` migration already in place ([lib/db/app_database.dart](lib/db/app_database.dart), [lib/models/video_card.dart](lib/models/video_card.dart))
 - `yt-dlp` wrapper for metadata + download ([lib/services/ytdlp_service.dart](lib/services/ytdlp_service.dart))
 - `ffmpeg` wrapper for audio/GIF/frame extraction (audio as 16kHz mono WAV, ready for whisper.cpp) ([lib/services/ffmpeg_service.dart](lib/services/ffmpeg_service.dart))
 - `whisper-cli` (whisper.cpp) wrapper for local, offline transcription ([lib/services/whisper_service.dart](lib/services/whisper_service.dart))
-- Home screen (card list) + "new card" screen (URL → download with live log) + "card detail" screen (range slider → extract frames → pick up to 6 key frames → optional preview GIF → transcribe audio) ([lib/screens/](lib/screens/))
+- `llama-server` (llama.cpp, GPU-accelerated) wrapper managing a local OpenAI-compatible server, kept resident for the app session ([lib/services/llm_service.dart](lib/services/llm_service.dart))
+- Chunk → per-chunk-summarize → merge summarization pipeline producing title/steps/insights/warnings ([lib/services/summarizer_service.dart](lib/services/summarizer_service.dart))
+- Home screen (card list) + "new card" screen (URL → download with live log) + "card detail" screen (range slider → extract frames → pick up to 6 key frames → optional preview GIF → transcribe audio → summarize with local LLM) ([lib/screens/](lib/screens/))
 
-Not yet built: local LLM summarization, QR/PDF card generation.
+Not yet built: QR/PDF card generation (the actual printable output).
+
+Known limitation: if the app is killed abruptly rather than closed
+normally, the `llama-server` child process can be left running in the
+background holding GPU memory — no cleanup UI for this yet.
 
 Note: yt-dlp currently warns about a missing JS runtime ("No supported
 JavaScript runtime could be found... YouTube extraction without a JS
@@ -56,6 +62,14 @@ installing `deno` would silence this and future-proof extraction.
   ([lib/services/whisper_service.dart](lib/services/whisper_service.dart)),
   downloadable from
   [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)
+- [`llama.cpp`](https://github.com/ggml-org/llama.cpp) `llama-server.exe` on
+  PATH (a CUDA build if you have an NVIDIA GPU, matched to your driver's
+  CUDA version, plus its `cudart`/`cublas` DLLs alongside it — otherwise
+  the CPU build), plus a GGUF instruct model — this repo currently
+  hardcodes `C:\tools\llama-cpp\models\Qwen2.5-7B-Instruct-Q4_K_M.gguf`
+  ([lib/services/llm_service.dart](lib/services/llm_service.dart)). The app
+  starts/manages the server itself (127.0.0.1:8811) the first time
+  summarization is used.
 
 ## Running
 
@@ -66,5 +80,4 @@ flutter run -d windows
 
 ## Not yet set up
 
-- Local 7B LLM runtime (llama.cpp + a GGUF model)
 - Android toolchain (cmdline-tools + licenses) for the Phase 2 port

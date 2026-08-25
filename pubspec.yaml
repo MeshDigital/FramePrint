@@ -49,6 +49,9 @@ dependencies:
   # State management
   provider: ^6.1.2
 
+  # Local LLM server (llama.cpp) communication
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

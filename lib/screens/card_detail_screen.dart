@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../db/app_database.dart';
 import '../models/video_card.dart';
 import '../services/ffmpeg_service.dart';
+import '../services/summarizer_service.dart';
 import '../services/whisper_service.dart';
 
 class CardDetailScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class CardDetailScreen extends StatefulWidget {
 class _CardDetailScreenState extends State<CardDetailScreen> {
   final _ffmpeg = FfmpegService();
   final _whisper = WhisperService();
+  final _summarizer = SummarizerService();
 
   late RangeValues _range;
   bool _busy = false;
@@ -31,6 +33,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   bool _transcribing = false;
   String? _transcribeError;
   String? _transcript;
+
+  bool _summarizing = false;
+  String? _summarizeError;
+  CardSummary? _summary;
 
   static const _maxSelectedFrames = 6;
 
@@ -45,6 +51,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _range = RangeValues(start.toDouble(), end.clamp(start, _duration).toDouble());
     _selectedFramePaths.addAll(widget.card.selectedFrames);
     _transcript = widget.card.transcriptText;
+    if (widget.card.summarySteps.isNotEmpty ||
+        widget.card.summaryInsights.isNotEmpty ||
+        widget.card.summaryWarnings.isNotEmpty) {
+      _summary = CardSummary(
+        title: widget.card.summaryTitle ?? 'Untitled',
+        steps: widget.card.summarySteps,
+        insights: widget.card.summaryInsights,
+        warnings: widget.card.summaryWarnings,
+      );
+    }
     _loadExistingFrames();
   }
 
@@ -74,6 +90,33 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       setState(() => _transcribeError = e.toString());
     } finally {
       if (mounted) setState(() => _transcribing = false);
+    }
+  }
+
+  Future<void> _summarize() async {
+    setState(() {
+      _summarizing = true;
+      _summarizeError = null;
+    });
+    try {
+      final summary = await _summarizer.summarize(
+        _transcript!,
+        fallbackTitle: widget.card.summaryTitle ?? 'Untitled',
+      );
+
+      widget.card
+        ..summaryTitle = summary.title
+        ..summarySteps = summary.steps
+        ..summaryInsights = summary.insights
+        ..summaryWarnings = summary.warnings
+        ..status = CardStatus.ready;
+      await AppDatabase.instance.updateCard(widget.card);
+
+      setState(() => _summary = summary);
+    } catch (e) {
+      setState(() => _summarizeError = e.toString());
+    } finally {
+      if (mounted) setState(() => _summarizing = false);
     }
   }
 
@@ -314,8 +357,90 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     ),
                     child: Text(_transcript!),
                   ),
+                const Divider(height: 32),
+                Text('Summary', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: (_transcript == null || _summarizing) ? null : _summarize,
+                  icon: const Icon(Icons.auto_awesome),
+                  label: Text(_summary == null ? 'Summarize (local LLM)' : 'Re-summarize'),
+                ),
+                if (_transcript == null)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Transcribe the audio first.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                if (_summarizing)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LinearProgressIndicator(),
+                        SizedBox(height: 4),
+                        Text(
+                          'Starting local model if needed, then summarizing...',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_summarizeError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      _summarizeError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                if (_summary != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _summary!.title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  _SummarySection(title: 'Steps', items: _summary!.steps),
+                  _SummarySection(title: 'Insights', items: _summary!.insights),
+                  _SummarySection(title: 'Warnings', items: _summary!.warnings),
+                ],
               ],
             ),
+    );
+  }
+}
+
+class _SummarySection extends StatelessWidget {
+  final String title;
+  final List<String> items;
+
+  const _SummarySection({required this.title, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          ...items.map((item) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('•  '),
+                    Expanded(child: Text(item)),
+                  ],
+                ),
+              )),
+        ],
+      ),
     );
   }
 }
