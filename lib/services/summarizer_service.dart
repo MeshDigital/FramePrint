@@ -46,6 +46,11 @@ Task: From the summaries below, produce:
 3. A list of key insights (max 7).
 4. A list of warnings (max 7).
 
+If the partial summaries have no real content for a section, leave that
+section's header with no bullets underneath it. Never invent placeholder
+bullets like "no steps provided" or ask for more information - just omit
+the bullets.
+
 Output in this exact format:
 
 # Title

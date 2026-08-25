@@ -23,18 +23,21 @@ See project memory / prior planning notes for the full phased breakdown
 
 ## Status
 
-Phase 1, steps 1-6 (URL input → download → segment selection → GIF/frame
-extraction → transcription → local LLM summarization) are implemented
-and working, verified end-to-end against real videos:
+The full Phase 1 pipeline (URL → download → segment selection →
+GIF/frame extraction → transcription → local LLM summarization →
+printable PDF card) is implemented and working, verified end-to-end
+against real videos:
 - SQLite-backed `VideoCard` catalog, with a `duration_seconds` migration already in place ([lib/db/app_database.dart](lib/db/app_database.dart), [lib/models/video_card.dart](lib/models/video_card.dart))
 - `yt-dlp` wrapper for metadata + download ([lib/services/ytdlp_service.dart](lib/services/ytdlp_service.dart))
 - `ffmpeg` wrapper for audio/GIF/frame extraction (audio as 16kHz mono WAV, ready for whisper.cpp) ([lib/services/ffmpeg_service.dart](lib/services/ffmpeg_service.dart))
 - `whisper-cli` (whisper.cpp) wrapper for local, offline transcription ([lib/services/whisper_service.dart](lib/services/whisper_service.dart))
 - `llama-server` (llama.cpp, GPU-accelerated) wrapper managing a local OpenAI-compatible server, kept resident for the app session ([lib/services/llm_service.dart](lib/services/llm_service.dart))
 - Chunk → per-chunk-summarize → merge summarization pipeline producing title/steps/insights/warnings ([lib/services/summarizer_service.dart](lib/services/summarizer_service.dart))
-- Home screen (card list) + "new card" screen (URL → download with live log) + "card detail" screen (range slider → extract frames → pick up to 6 key frames → optional preview GIF → transcribe audio → summarize with local LLM) ([lib/screens/](lib/screens/))
+- One-page PDF card generator: title, QR code back to the source video, key frames, steps/insights/warnings ([lib/services/pdf_service.dart](lib/services/pdf_service.dart))
+- Home screen (card list) → "new card" screen (URL → download with live log) → "card detail" screen (range slider → extract frames → pick up to 6 key frames → optional preview GIF → transcribe audio → summarize with local LLM) → PDF preview screen (print/save via the `printing` package's built-in controls) ([lib/screens/](lib/screens/))
 
-Not yet built: QR/PDF card generation (the actual printable output).
+Not yet built: the Phase 2 Android port, and any UX polish (tagging,
+batch/playlist mode, re-editing a saved card).
 
 Known limitation: if the app is killed abruptly rather than closed
 normally, the `llama-server` child process can be left running in the

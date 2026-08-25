@@ -8,6 +8,7 @@ import '../models/video_card.dart';
 import '../services/ffmpeg_service.dart';
 import '../services/summarizer_service.dart';
 import '../services/whisper_service.dart';
+import 'pdf_preview_screen.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final VideoCard card;
@@ -406,6 +407,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   _SummarySection(title: 'Steps', items: _summary!.steps),
                   _SummarySection(title: 'Insights', items: _summary!.insights),
                   _SummarySection(title: 'Warnings', items: _summary!.warnings),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PdfPreviewScreen(card: widget.card),
+                      ),
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf),
+                    label: const Text('Generate printable card'),
+                  ),
                 ],
               ],
             ),
