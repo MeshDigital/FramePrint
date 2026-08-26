@@ -1,8 +1,10 @@
+import '../models/video_card.dart';
 import 'llm_service.dart';
+import 'whisper_service.dart';
 
 class CardSummary {
   final String title;
-  final List<String> steps;
+  final List<SummaryStep> steps;
   final List<String> insights;
   final List<String> warnings;
 
@@ -14,6 +16,14 @@ class CardSummary {
   });
 }
 
+const _timestampInstructions = '''
+Each line of the transcript is prefixed with a timestamp like [01:23]
+showing when it was said. When you list a step, prefix it with the
+timestamp of the moment that step begins, in the same [MM:SS] format,
+taken from the transcript line it's based on. Insights and warnings
+don't need timestamps.
+''';
+
 const _chunkSystemPrompt = '''
 You are a summarization assistant.
 
@@ -22,10 +32,12 @@ Task: From the transcript chunk below, extract:
 2. Key insights (short bullet points).
 3. Warnings (risks, caveats, important notes).
 
+$_timestampInstructions
+
 Output in this exact format:
 
 # Steps
-- ...
+- [MM:SS] ...
 
 # Insights
 - ...
@@ -46,6 +58,10 @@ Task: From the summaries below, produce:
 3. A list of key insights (max 7).
 4. A list of warnings (max 7).
 
+The step bullets you're given are prefixed with a [MM:SS] timestamp.
+Keep that same timestamp prefix on each step you output, reusing the
+timestamp from the partial summary it came from.
+
 If the partial summaries have no real content for a section, leave that
 section's header with no bullets underneath it. Never invent placeholder
 bullets like "no steps provided" or ask for more information - just omit
@@ -57,7 +73,7 @@ Output in this exact format:
 <one line>
 
 # Steps
-- ...
+- [MM:SS] ...
 
 # Insights
 - ...
@@ -66,27 +82,53 @@ Output in this exact format:
 - ...
 ''';
 
+final _stepTimestampPattern = RegExp(r'^\[(\d+):(\d{2})\]\s*(.+)$');
+
 /// Implements the chunk -> per-chunk summarize -> merge pipeline: splits a
-/// long transcript into word-count-bounded chunks (so each stays well
-/// within the model's context window alongside the system prompt and
-/// generation budget), summarizes each chunk, then merges the partial
-/// summaries into one final card.
+/// long transcript into word-count-bounded chunks of whole segments (so
+/// each stays well within the model's context window, and timestamps stay
+/// meaningful), summarizes each chunk, then merges the partial summaries
+/// into one final card. Steps carry a timestamp back to the moment in the
+/// source video they were drawn from.
 class SummarizerService {
   final LlmService _llm;
 
   SummarizerService({LlmService? llm}) : _llm = llm ?? LlmService.instance;
 
-  List<String> _chunkTranscript(String transcript, {int wordsPerChunk = 900}) {
-    final words = transcript.trim().split(RegExp(r'\s+'));
-    if (words.isEmpty || (words.length == 1 && words.first.isEmpty)) {
-      return [];
-    }
+  List<String> _chunkSegments(List<TranscriptSegment> segments, {int wordsPerChunk = 900}) {
     final chunks = <String>[];
-    for (var i = 0; i < words.length; i += wordsPerChunk) {
-      final end = (i + wordsPerChunk < words.length) ? i + wordsPerChunk : words.length;
-      chunks.add(words.sublist(i, end).join(' '));
+    final buffer = StringBuffer();
+    var wordCount = 0;
+
+    void flush() {
+      if (buffer.isNotEmpty) chunks.add(buffer.toString().trim());
+      buffer.clear();
+      wordCount = 0;
     }
+
+    for (final segment in segments) {
+      if (segment.text.trim().isEmpty) continue;
+      buffer.writeln('[${_formatTimestamp(segment.startSeconds)}] ${segment.text.trim()}');
+      wordCount += segment.text.trim().split(RegExp(r'\s+')).length;
+      if (wordCount >= wordsPerChunk) flush();
+    }
+    flush();
     return chunks;
+  }
+
+  String _formatTimestamp(double seconds) {
+    final total = seconds.round();
+    final m = total ~/ 60;
+    final s = total % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  double? _parseTimestampTag(String mmss) {
+    final match = RegExp(r'^(\d+):(\d{2})$').firstMatch(mmss);
+    if (match == null) return null;
+    final minutes = int.parse(match.group(1)!);
+    final seconds = int.parse(match.group(2)!);
+    return (minutes * 60 + seconds).toDouble();
   }
 
   /// Parses a "# Section\n- bullet\n- bullet" formatted response into a
@@ -116,11 +158,22 @@ class SummarizerService {
     return sections;
   }
 
+  List<SummaryStep> _parseSteps(List<String> rawSteps) {
+    return rawSteps.map((raw) {
+      final match = _stepTimestampPattern.firstMatch(raw);
+      if (match == null) return SummaryStep(text: raw);
+      return SummaryStep(
+        text: match.group(3)!.trim(),
+        timestampSeconds: _parseTimestampTag('${match.group(1)}:${match.group(2)}'),
+      );
+    }).toList();
+  }
+
   Future<String> _summarizeChunk(String chunk) {
     return _llm.chat(
       systemPrompt: _chunkSystemPrompt,
       userPrompt: 'Transcript chunk:\n"""\n$chunk\n"""',
-      maxTokens: 500,
+      maxTokens: 600,
     );
   }
 
@@ -128,22 +181,26 @@ class SummarizerService {
     final merged = await _llm.chat(
       systemPrompt: _mergeSystemPrompt,
       userPrompt: 'Partial summaries:\n"""\n${partialSummaries.join('\n\n')}\n"""',
-      maxTokens: 700,
+      maxTokens: 800,
     );
     final sections = _parseSections(merged);
     final titleLines = sections['title'];
     return CardSummary(
       title: (titleLines != null && titleLines.isNotEmpty) ? titleLines.first : fallbackTitle,
-      steps: sections['steps'] ?? [],
+      steps: _parseSteps(sections['steps'] ?? []),
       insights: sections['insights'] ?? [],
       warnings: sections['warnings'] ?? [],
     );
   }
 
-  /// Summarizes [transcript] into a [CardSummary]. [fallbackTitle] (e.g.
-  /// the source video's title) is used if the model doesn't produce one.
-  Future<CardSummary> summarize(String transcript, {String fallbackTitle = 'Untitled'}) async {
-    final chunks = _chunkTranscript(transcript);
+  /// Summarizes [segments] (a timestamped transcript, see [WhisperService])
+  /// into a [CardSummary]. [fallbackTitle] (e.g. the source video's title)
+  /// is used if the model doesn't produce one.
+  Future<CardSummary> summarize(
+    List<TranscriptSegment> segments, {
+    String fallbackTitle = 'Untitled',
+  }) async {
+    final chunks = _chunkSegments(segments);
     if (chunks.isEmpty) {
       return CardSummary(title: fallbackTitle, steps: [], insights: [], warnings: []);
     }

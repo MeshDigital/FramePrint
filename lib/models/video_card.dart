@@ -1,6 +1,32 @@
 import 'dart:convert';
 
+import '../services/whisper_service.dart';
+
 enum CardStatus { pending, downloading, downloaded, processing, ready, error }
+
+/// One step in the summary, tagged with the moment in the source video it
+/// corresponds to (if the model provided one) and a frame grabbed from
+/// that exact moment, so the printed card shows the right picture next to
+/// the right instruction instead of an arbitrary gallery of frames.
+class SummaryStep {
+  final String text;
+  final double? timestampSeconds;
+  String? framePath;
+
+  SummaryStep({required this.text, this.timestampSeconds, this.framePath});
+
+  Map<String, Object?> toMap() => {
+        'text': text,
+        'timestamp': timestampSeconds,
+        'frame_path': framePath,
+      };
+
+  factory SummaryStep.fromMap(Map<String, dynamic> map) => SummaryStep(
+        text: map['text'] as String,
+        timestampSeconds: (map['timestamp'] as num?)?.toDouble(),
+        framePath: map['frame_path'] as String?,
+      );
+}
 
 /// A single video -> paper "knowledge card", following the schema from
 /// the FramePrint pipeline plan (see README).
@@ -20,9 +46,10 @@ class VideoCard {
   List<String> selectedFrames;
 
   String? transcriptText;
+  List<TranscriptSegment> transcriptSegments;
 
   String? summaryTitle;
-  List<String> summarySteps;
+  List<SummaryStep> summarySteps;
   List<String> summaryInsights;
   List<String> summaryWarnings;
 
@@ -45,8 +72,9 @@ class VideoCard {
     this.segmentEndSeconds,
     List<String>? selectedFrames,
     this.transcriptText,
+    List<TranscriptSegment>? transcriptSegments,
     this.summaryTitle,
-    List<String>? summarySteps,
+    List<SummaryStep>? summarySteps,
     List<String>? summaryInsights,
     List<String>? summaryWarnings,
     this.pdfPath,
@@ -54,6 +82,7 @@ class VideoCard {
     this.status = CardStatus.pending,
     this.errorMessage,
   })  : selectedFrames = selectedFrames ?? [],
+        transcriptSegments = transcriptSegments ?? [],
         summarySteps = summarySteps ?? [],
         summaryInsights = summaryInsights ?? [],
         summaryWarnings = summaryWarnings ?? [];
@@ -72,8 +101,9 @@ class VideoCard {
       'segment_end': segmentEndSeconds,
       'selected_frames': jsonEncode(selectedFrames),
       'transcript_text': transcriptText,
+      'transcript_segments': jsonEncode(transcriptSegments.map((s) => s.toMap()).toList()),
       'summary_title': summaryTitle,
-      'summary_steps': jsonEncode(summarySteps),
+      'summary_steps': jsonEncode(summarySteps.map((s) => s.toMap()).toList()),
       'summary_insights': jsonEncode(summaryInsights),
       'summary_warnings': jsonEncode(summaryWarnings),
       'pdf_path': pdfPath,
@@ -83,10 +113,34 @@ class VideoCard {
     };
   }
 
-  static List<String> _decodeList(Object? raw) {
+  static List<String> _decodeStringList(Object? raw) {
     if (raw == null) return [];
-    final decoded = jsonDecode(raw as String) as List;
-    return decoded.map((e) => e.toString()).toList();
+    try {
+      final decoded = jsonDecode(raw as String) as List;
+      return decoded.map((e) => e.toString()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static List<SummaryStep> _decodeSteps(Object? raw) {
+    if (raw == null) return [];
+    try {
+      final decoded = jsonDecode(raw as String) as List;
+      return decoded.map((e) => SummaryStep.fromMap(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static List<TranscriptSegment> _decodeSegments(Object? raw) {
+    if (raw == null) return [];
+    try {
+      final decoded = jsonDecode(raw as String) as List;
+      return decoded.map((e) => TranscriptSegment.fromMap(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   factory VideoCard.fromMap(Map<String, Object?> map) {
@@ -101,12 +155,13 @@ class VideoCard {
       durationSeconds: map['duration_seconds'] as int?,
       segmentStartSeconds: map['segment_start'] as int?,
       segmentEndSeconds: map['segment_end'] as int?,
-      selectedFrames: _decodeList(map['selected_frames']),
+      selectedFrames: _decodeStringList(map['selected_frames']),
       transcriptText: map['transcript_text'] as String?,
+      transcriptSegments: _decodeSegments(map['transcript_segments']),
       summaryTitle: map['summary_title'] as String?,
-      summarySteps: _decodeList(map['summary_steps']),
-      summaryInsights: _decodeList(map['summary_insights']),
-      summaryWarnings: _decodeList(map['summary_warnings']),
+      summarySteps: _decodeSteps(map['summary_steps']),
+      summaryInsights: _decodeStringList(map['summary_insights']),
+      summaryWarnings: _decodeStringList(map['summary_warnings']),
       pdfPath: map['pdf_path'] as String?,
       qrPayload: map['qr_payload'] as String?,
       status: CardStatus.values.firstWhere(

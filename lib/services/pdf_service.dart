@@ -7,75 +7,98 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/video_card.dart';
 
 /// Builds the one-page printable "knowledge card" PDF: title + QR code
-/// back to the source video, key frames, and the steps/insights/warnings
-/// summary.
+/// back to the source video, and the steps/insights/warnings summary,
+/// with each step shown next to the frame grabbed from the moment in the
+/// video it corresponds to (when available).
 class PdfService {
   Future<Uint8List> buildCardPdf(VideoCard card) async {
     final doc = pw.Document();
 
-    final frameImages = <pw.MemoryImage>[];
-    for (final path in card.selectedFrames) {
+    // pw.Page's build callback is synchronous, so frame bytes are loaded
+    // up front and looked up by step index inside it.
+    final stepImages = <int, pw.MemoryImage>{};
+    for (var i = 0; i < card.summarySteps.length; i++) {
+      final path = card.summarySteps[i].framePath;
+      if (path == null) continue;
       final file = File(path);
       if (await file.exists()) {
-        frameImages.add(pw.MemoryImage(await file.readAsBytes()));
+        stepImages[i] = pw.MemoryImage(await file.readAsBytes());
       }
     }
 
+    // pw.Page silently clips content that overflows a single page; a card
+    // with many steps needs to flow across multiple pages, hence MultiPage.
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Expanded(
-                  child: pw.Text(
-                    card.summaryTitle ?? 'Untitled',
-                    style: pw.TextStyle(
-                      fontSize: 22,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+        build: (context) => [
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Expanded(
+                child: pw.Text(
+                  card.summaryTitle ?? 'Untitled',
+                  style: pw.TextStyle(
+                    fontSize: 22,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-                pw.SizedBox(width: 16),
-                pw.BarcodeWidget(
-                  barcode: pw.Barcode.qrCode(),
-                  data: card.qrPayload ?? card.youtubeUrl,
-                  width: 72,
-                  height: 72,
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 16),
-            if (frameImages.isNotEmpty)
-              pw.Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: frameImages
-                    .map(
-                      (img) => pw.Container(
-                        width: 140,
-                        height: 90,
-                        child: pw.Image(img, fit: pw.BoxFit.cover),
-                      ),
-                    )
-                    .toList(),
               ),
-            _section('Steps', card.summarySteps, numbered: true),
-            _section('Insights', card.summaryInsights),
-            _section('Warnings', card.summaryWarnings),
+              pw.SizedBox(width: 16),
+              pw.BarcodeWidget(
+                barcode: pw.Barcode.qrCode(),
+                data: card.qrPayload ?? card.youtubeUrl,
+                width: 72,
+                height: 72,
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 16),
+          if (card.summarySteps.isNotEmpty) ...[
+            pw.Text(
+              'Steps',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 6),
+            ...card.summarySteps.asMap().entries.map(
+                  (e) => _stepRow(e.key, e.value, stepImages[e.key]),
+                ),
           ],
-        ),
+          _section('Insights', card.summaryInsights),
+          _section('Warnings', card.summaryWarnings),
+        ],
       ),
     );
 
     return doc.save();
   }
 
-  pw.Widget _section(String title, List<String> items, {bool numbered = false}) {
+  pw.Widget _stepRow(int index, SummaryStep step, pw.MemoryImage? image) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 8),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          if (image != null)
+            pw.Container(
+              width: 100,
+              height: 62,
+              margin: const pw.EdgeInsets.only(right: 10),
+              child: pw.Image(image, fit: pw.BoxFit.cover),
+            ),
+          pw.Expanded(
+            child: pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 2),
+              child: pw.Text('${index + 1}. ${step.text}'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _section(String title, List<String> items) {
     if (items.isEmpty) return pw.SizedBox();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -86,14 +109,12 @@ class PdfService {
           style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 4),
-        ...items.asMap().entries.map(
-              (e) => pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 2),
-                child: pw.Text(
-                  numbered ? '${e.key + 1}. ${e.value}' : '- ${e.value}',
-                ),
-              ),
-            ),
+        ...items.map(
+          (item) => pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 2),
+            child: pw.Text('- $item'),
+          ),
+        ),
       ],
     );
   }

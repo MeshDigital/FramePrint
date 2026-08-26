@@ -79,14 +79,15 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         outputAudioPath: audioPath,
       );
 
-      final transcript = await _whisper.transcribe(audioPath);
+      final result = await _whisper.transcribe(audioPath);
 
       widget.card
         ..localAudioPath = audioPath
-        ..transcriptText = transcript;
+        ..transcriptText = result.fullText
+        ..transcriptSegments = result.segments;
       await AppDatabase.instance.updateCard(widget.card);
 
-      setState(() => _transcript = transcript);
+      setState(() => _transcript = result.fullText);
     } catch (e) {
       setState(() => _transcribeError = e.toString());
     } finally {
@@ -101,9 +102,37 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     });
     try {
       final summary = await _summarizer.summarize(
-        _transcript!,
+        widget.card.transcriptSegments,
         fallbackTitle: widget.card.summaryTitle ?? 'Untitled',
       );
+
+      // Grab a frame from the exact moment each step was said, so the
+      // printed card shows the right picture next to the right instruction.
+      final mediaDir = await AppDatabase.instance.mediaDirFor(widget.card.id);
+      final stepFramesDir = Directory(p.join(mediaDir.path, 'step_frames'));
+      if (await stepFramesDir.exists()) {
+        await stepFramesDir.delete(recursive: true);
+      }
+      await stepFramesDir.create(recursive: true);
+
+      for (var i = 0; i < summary.steps.length; i++) {
+        final step = summary.steps[i];
+        if (step.timestampSeconds == null) continue;
+        final framePath = p.join(
+          stepFramesDir.path,
+          'step_${i.toString().padLeft(2, '0')}.png',
+        );
+        try {
+          await _ffmpeg.extractFrameAt(
+            videoPath: widget.card.localVideoPath!,
+            atSeconds: step.timestampSeconds!,
+            outputPath: framePath,
+          );
+          step.framePath = framePath;
+        } catch (_) {
+          // Leave framePath null for this step if extraction fails.
+        }
+      }
 
       widget.card
         ..summaryTitle = summary.title
@@ -362,11 +391,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 Text('Summary', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 ElevatedButton.icon(
-                  onPressed: (_transcript == null || _summarizing) ? null : _summarize,
+                  onPressed: (widget.card.transcriptSegments.isEmpty || _summarizing)
+                      ? null
+                      : _summarize,
                   icon: const Icon(Icons.auto_awesome),
                   label: Text(_summary == null ? 'Summarize (local LLM)' : 'Re-summarize'),
                 ),
-                if (_transcript == null)
+                if (widget.card.transcriptSegments.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
@@ -404,7 +435,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
-                  _SummarySection(title: 'Steps', items: _summary!.steps),
+                  _StepsSection(steps: _summary!.steps),
                   _SummarySection(title: 'Insights', items: _summary!.insights),
                   _SummarySection(title: 'Warnings', items: _summary!.warnings),
                   const SizedBox(height: 16),
@@ -420,6 +451,52 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 ],
               ],
             ),
+    );
+  }
+}
+
+class _StepsSection extends StatelessWidget {
+  final List<SummaryStep> steps;
+
+  const _StepsSection({required this.steps});
+
+  @override
+  Widget build(BuildContext context) {
+    if (steps.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Steps', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          ...steps.asMap().entries.map((entry) {
+            final step = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (step.framePath != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.file(
+                          File(step.framePath!),
+                          width: 90,
+                          height: 56,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  Expanded(child: Text('${entry.key + 1}. ${step.text}')),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 }

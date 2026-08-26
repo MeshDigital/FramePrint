@@ -34,11 +34,16 @@ class AppDatabase {
     return factory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
               'ALTER TABLE video_card ADD COLUMN duration_seconds INTEGER',
+            );
+          }
+          if (oldVersion < 3) {
+            await db.execute(
+              'ALTER TABLE video_card ADD COLUMN transcript_segments TEXT',
             );
           }
         },
@@ -57,6 +62,7 @@ class AppDatabase {
               segment_end INTEGER,
               selected_frames TEXT,
               transcript_text TEXT,
+              transcript_segments TEXT,
               summary_title TEXT,
               summary_steps TEXT,
               summary_insights TEXT,

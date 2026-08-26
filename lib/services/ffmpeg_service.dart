@@ -49,6 +49,22 @@ class FfmpegService {
         outputGifPath,
       ]);
 
+  /// Extracts a single frame at [atSeconds] into [outputPath]. Used to grab
+  /// a representative image for a specific moment (e.g. a summarized
+  /// step's timestamp) rather than a generic range of frames.
+  Future<void> extractFrameAt({
+    required String videoPath,
+    required double atSeconds,
+    required String outputPath,
+    int width = 480,
+  }) => _run([
+        '-ss', atSeconds.toStringAsFixed(2),
+        '-i', videoPath,
+        '-frames:v', '1',
+        '-vf', 'scale=$width:-1',
+        outputPath,
+      ]);
+
   /// Extracts one frame per second from [start, end] into [outputDir] as
   /// frame_001.png, frame_002.png, ...
   Future<void> extractFrames({
