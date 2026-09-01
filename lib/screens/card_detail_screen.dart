@@ -51,6 +51,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         (_duration < 60 ? _duration : 60);
     _range = RangeValues(start.toDouble(), end.clamp(start, _duration).toDouble());
     _selectedFramePaths.addAll(widget.card.selectedFrames);
+    if (widget.card.gifPath != null && File(widget.card.gifPath!).existsSync()) {
+      _gifFile = File(widget.card.gifPath!);
+    }
     _transcript = widget.card.transcriptText;
     if (widget.card.summarySteps.isNotEmpty ||
         widget.card.summaryInsights.isNotEmpty ||

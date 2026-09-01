@@ -110,9 +110,16 @@ class AppDatabase {
     );
   }
 
+  /// Deletes the card's catalog row and its on-disk media directory
+  /// (downloaded video/audio, extracted frames/gif, generated pdf).
   Future<void> deleteCard(String id) async {
     final db = await database;
     await db.delete('video_card', where: 'id = ?', whereArgs: [id]);
+
+    final dir = await mediaDirFor(id);
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
   }
 
   Future<List<VideoCard>> allCards() async {

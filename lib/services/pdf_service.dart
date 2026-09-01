@@ -26,6 +26,16 @@ class PdfService {
       }
     }
 
+    // The first hand-picked frame (see card_detail_screen's frame gallery)
+    // is used as the card's cover image, if one was selected.
+    pw.MemoryImage? coverImage;
+    if (card.selectedFrames.isNotEmpty) {
+      final file = File(card.selectedFrames.first);
+      if (await file.exists()) {
+        coverImage = pw.MemoryImage(await file.readAsBytes());
+      }
+    }
+
     // pw.Page silently clips content that overflows a single page; a card
     // with many steps needs to flow across multiple pages, hence MultiPage.
     doc.addPage(
@@ -36,6 +46,13 @@ class PdfService {
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
+              if (coverImage != null)
+                pw.Container(
+                  width: 90,
+                  height: 90,
+                  margin: const pw.EdgeInsets.only(right: 12),
+                  child: pw.Image(coverImage, fit: pw.BoxFit.cover),
+                ),
               pw.Expanded(
                 child: pw.Text(
                   card.summaryTitle ?? 'Untitled',

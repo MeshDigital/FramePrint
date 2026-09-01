@@ -45,6 +45,33 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _deleteCard(VideoCard card) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete card?'),
+        content: Text(
+          'This removes "${card.summaryTitle ?? card.youtubeUrl}" and its '
+          'downloaded video, frames, and PDF. This can\'t be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await AppDatabase.instance.deleteCard(card.id);
+    _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -71,13 +98,23 @@ class _HomeScreenState extends State<HomeScreen> {
             itemCount: cards.length,
             itemBuilder: (context, index) {
               final card = cards[index];
+              final subtitle = card.status == CardStatus.error &&
+                      card.errorMessage != null &&
+                      card.errorMessage!.isNotEmpty
+                  ? card.errorMessage!
+                  : card.status.name;
               return ListTile(
                 leading: _statusIcon(card.status),
                 title: Text(card.summaryTitle ?? card.youtubeUrl),
-                subtitle: Text(card.status.name),
+                subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
                 onTap: card.localVideoPath == null
                     ? null
                     : () => _openCard(card),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Delete card',
+                  onPressed: () => _deleteCard(card),
+                ),
               );
             },
           );

@@ -84,6 +84,15 @@ Output in this exact format:
 
 final _stepTimestampPattern = RegExp(r'^\[(\d+):(\d{2})\]\s*(.+)$');
 
+/// Signature of [LlmService.chat], factored out so tests can inject a fake
+/// without hitting a real llama-server.
+typedef ChatFn = Future<String> Function({
+  required String systemPrompt,
+  required String userPrompt,
+  int maxTokens,
+  double temperature,
+});
+
 /// Implements the chunk -> per-chunk summarize -> merge pipeline: splits a
 /// long transcript into word-count-bounded chunks of whole segments (so
 /// each stays well within the model's context window, and timestamps stay
@@ -91,9 +100,10 @@ final _stepTimestampPattern = RegExp(r'^\[(\d+):(\d{2})\]\s*(.+)$');
 /// into one final card. Steps carry a timestamp back to the moment in the
 /// source video they were drawn from.
 class SummarizerService {
-  final LlmService _llm;
+  final ChatFn _chat;
 
-  SummarizerService({LlmService? llm}) : _llm = llm ?? LlmService.instance;
+  SummarizerService({LlmService? llm, ChatFn? chat})
+      : _chat = chat ?? (llm ?? LlmService.instance).chat;
 
   List<String> _chunkSegments(List<TranscriptSegment> segments, {int wordsPerChunk = 900}) {
     final chunks = <String>[];
@@ -170,7 +180,7 @@ class SummarizerService {
   }
 
   Future<String> _summarizeChunk(String chunk) {
-    return _llm.chat(
+    return _chat(
       systemPrompt: _chunkSystemPrompt,
       userPrompt: 'Transcript chunk:\n"""\n$chunk\n"""',
       maxTokens: 600,
@@ -178,7 +188,7 @@ class SummarizerService {
   }
 
   Future<CardSummary> _merge(String fallbackTitle, List<String> partialSummaries) async {
-    final merged = await _llm.chat(
+    final merged = await _chat(
       systemPrompt: _mergeSystemPrompt,
       userPrompt: 'Partial summaries:\n"""\n${partialSummaries.join('\n\n')}\n"""',
       maxTokens: 800,
